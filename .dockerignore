@@ -1,0 +1,9 @@
+.git
+.venv
+__pycache__
+*.py[cod]
+quiet_space.db
+.session_secret
+uploads
+frontend/node_modules
+frontend/dist

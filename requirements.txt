@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+pwdlib[argon2]
+itsdangerous
+python-multipart
+Pillow

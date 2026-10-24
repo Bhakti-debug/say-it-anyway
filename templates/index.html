@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f7f5f0">
+    <title>Quiet Space — a place to let it out</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/style.css') }}">
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="topbar">
+        <a class="wordmark" href="/" aria-label="Quiet Space home"><span class="wordmark-mark">○</span> quiet space</a>
+        <span class="topbar-note">a little room to be human</span>
+      </header>
+
+      <section class="intro" aria-labelledby="page-title">
+        <p class="eyebrow">A space for what’s on your mind</p>
+        <h1 id="page-title">You can just<br><em>let it out.</em></h1>
+        <p class="intro-copy">A small, quiet corner for the things you feel, notice, and don’t always say.</p>
+      </section>
+
+      <section class="composer" aria-labelledby="composer-title">
+        <div class="composer-heading">
+          <div>
+            <p class="eyebrow">Your words, your way</p>
+            <h2 id="composer-title">What’s on your mind?</h2>
+          </div>
+          <span class="sparkle" aria-hidden="true">✳</span>
+        </div>
+        {% if request.query_params.get('error') == 'message' %}
+          <p class="form-error" role="alert">Write something first, up to 500 characters.</p>
+        {% elif request.query_params.get('error') == 'name' %}
+          <p class="form-error" role="alert">Keep your name under 30 characters.</p>
+        {% endif %}
+        <form action="/posts" method="post">
+          <label class="visually-hidden" for="message">Your thought or feeling</label>
+          <textarea id="message" name="message" maxlength="500" placeholder="A thought, a feeling, a tiny thing from today…" required></textarea>
+          <div class="composer-footer">
+            <label class="name-field" for="pseudonym"><span aria-hidden="true">↳</span>
+              <input id="pseudonym" name="pseudonym" type="text" maxlength="30" placeholder="Post as Anonymous">
+            </label>
+            <button type="submit">Let it out <span aria-hidden="true">↗</span></button>
+          </div>
+        </form>
+        <p class="privacy-note">No account needed. Leave the name blank to post anonymously.</p>
+      </section>
+
+      <section class="feed" aria-labelledby="feed-title">
+        <div class="feed-heading">
+          <div><p class="eyebrow">A few voices</p><h2 id="feed-title">Things people are feeling</h2></div>
+          <span class="feed-count">{{ posts|length }} shared</span>
+        </div>
+        {% if posts %}
+          <div class="post-list">
+            {% for post in posts %}
+              <article class="post-card">
+                <p class="post-message">{{ post.message }}</p>
+                <footer class="post-meta"><span class="avatar" aria-hidden="true">{{ post.author[0]|upper }}</span><span>{{ post.author }}</span><span class="meta-dot">·</span><time>{{ post.created_at[:16].replace('T', ' ') }} UTC</time></footer>
+              </article>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="empty-state"><span aria-hidden="true">☁</span><p>The space is quiet for now.</p><p>Be the first to leave a little piece of your day.</p></div>
+        {% endif %}
+      </section>
+
+      <footer class="page-footer">Made for the things that make us human <span aria-hidden="true">·</span> take care of yourself</footer>
+    </main>
+  </body>
+</html>

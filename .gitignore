@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.py[cod]
+quiet_space.db
+.session_secret
+.env
+.env.*
+!.env.example
+uploads/
+frontend/node_modules/
+frontend/dist/

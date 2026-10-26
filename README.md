@@ -1,4 +1,4 @@
-# Quiet Space
+# Say It Anyway
 
 A small feelings-sharing app. People can browse the feed, create an account with a username, post thoughts with an optional photo into a section, follow other accounts, leave emoji reactions, and comment. The signup form does not ask for a real name or email address. FastAPI provides the API. Local development uses SQLite and local image files; the hosted version uses Supabase PostgreSQL and Supabase Storage.
 

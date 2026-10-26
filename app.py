@@ -353,7 +353,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Quiet Space API", lifespan=lifespan)
+app = FastAPI(title="Say It Anyway API", lifespan=lifespan)
 if not SUPABASE_STORAGE_ENABLED:
     app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 app.add_middleware(

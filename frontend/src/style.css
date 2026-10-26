@@ -81,7 +81,7 @@ body { margin: 0; min-width: 320px; background: radial-gradient(ellipse at 15% 1
 .post-card { padding: 24px 26px 18px; border: 1px solid #e8e2eb; border-radius: 14px; background: var(--surface); box-shadow: 0 9px 24px #51425f08; animation: arrive .2s ease both; transition: transform .18s, box-shadow .18s; }
 .post-card:hover { transform: translateY(-2px); box-shadow: 0 12px 28px #51425f12; }
 .post-message { margin: 0 0 19px; white-space: pre-wrap; overflow-wrap: anywhere; font-family: 'Lora', Georgia, serif; font-size: 16px; line-height: 1.85; }
-.post-image { display: block; width: 100%; max-height: 480px; margin: 0 0 14px; border-radius: 11px; background: #eee8ef; object-fit: cover; }
+.post-image { display: block; width: auto; max-width: 100%; max-height: 520px; margin: 0 auto 14px; border-radius: 11px; background: #eee8ef; object-fit: contain; }
 .post-category { display: inline-block; margin: 0 0 13px; padding: 5px 9px; border-radius: 999px; background: #f3eaf3; color: #795b7c; font-size: 9px; font-weight: 800; letter-spacing: .03em; }
 .post-byline { display: flex; align-items: center; gap: 8px; color: #92918a; font-size: 9px; }
 .avatar { display: grid; width: 21px; height: 21px; place-items: center; border-radius: 50%; background: #ebeee8; color: var(--green); font-size: 9px; font-weight: 700; }

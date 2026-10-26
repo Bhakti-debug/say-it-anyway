@@ -8,6 +8,7 @@ import secrets
 import sqlite3
 from typing import Literal
 import uuid
+from functools import lru_cache
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,8 +21,18 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR))).expanduser().resolve()
+DEFAULT_DATA_DIR = "/tmp/quiet-space" if os.getenv("VERCEL") == "1" else str(BASE_DIR)
+DATA_DIR = Path(os.getenv("DATA_DIR", DEFAULT_DATA_DIR)).expanduser().resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+SUPABASE_STORAGE_BUCKET = os.getenv("SUPABASE_STORAGE_BUCKET", "post-images").strip()
+SUPABASE_STORAGE_ENABLED = bool(SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY)
+if SUPABASE_STORAGE_ENABLED and not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY):
+    raise RuntimeError("Set both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable photo storage.")
+if os.getenv("VERCEL") == "1" and not (DATABASE_URL and SUPABASE_STORAGE_ENABLED):
+    raise RuntimeError("Set DATABASE_URL, SUPABASE_URL, and SUPABASE_SERVICE_ROLE_KEY for Vercel.")
 DATABASE_PATH = DATA_DIR / "quiet_space.db"
 FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -29,7 +40,8 @@ SECRET_PATH = DATA_DIR / ".session_secret"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 ALLOWED_CATEGORIES = {"feelings", "playful", "silly", "jokes", "poetry", "creative"}
 Image.MAX_IMAGE_PIXELS = 40_000_000
-UPLOAD_DIR.mkdir(exist_ok=True)
+if not SUPABASE_STORAGE_ENABLED and os.getenv("VERCEL") != "1":
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 password_hasher = PasswordHash.recommended()
 
 
@@ -37,15 +49,71 @@ def get_session_secret():
     configured_secret = os.getenv("SESSION_SECRET")
     if configured_secret:
         return configured_secret
+    if DATABASE_URL or os.getenv("VERCEL") == "1":
+        raise RuntimeError("Set SESSION_SECRET in the hosting provider's environment settings.")
     if not SECRET_PATH.exists():
         SECRET_PATH.write_text(secrets.token_urlsafe(32), encoding="utf-8")
     return SECRET_PATH.read_text(encoding="utf-8").strip()
 
 
+class PostgresConnection:
+    """Keep the app's small SQLite-style execute calls usable with psycopg."""
+
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, statement, parameters=()):
+        return self.connection.execute(statement.replace("?", "%s"), parameters)
+
+    def __enter__(self):
+        self.connection.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return self.connection.__exit__(exc_type, exc_value, traceback)
+
+
 def connect_to_database():
+    if DATABASE_URL:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        connection = psycopg.connect(
+            DATABASE_URL,
+            row_factory=dict_row,
+            prepare_threshold=None,
+            sslmode="require",
+        )
+        return PostgresConnection(connection)
     connection = sqlite3.connect(DATABASE_PATH)
     connection.row_factory = sqlite3.Row
     return connection
+
+
+def database_integrity_errors():
+    if DATABASE_URL:
+        import psycopg
+
+        return (psycopg.IntegrityError,)
+    return (sqlite3.IntegrityError,)
+
+
+@lru_cache(maxsize=1)
+def get_supabase_storage_client():
+    if not SUPABASE_STORAGE_ENABLED:
+        return None
+    from supabase import create_client
+
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+
+
+def get_image_url(image_path):
+    if not image_path:
+        return None
+    storage = get_supabase_storage_client()
+    if storage is not None:
+        return storage.storage.from_(SUPABASE_STORAGE_BUCKET).get_public_url(image_path)
+    return f"/uploads/{Path(image_path).name}"
 
 
 def store_uploaded_image(image_bytes: bytes) -> str:
@@ -66,7 +134,20 @@ def store_uploaded_image(image_bytes: bytes) -> str:
             if image.mode not in {"RGB", "RGBA"}:
                 image = image.convert("RGB")
             filename = f"{uuid.uuid4().hex}.webp"
-            image.save(UPLOAD_DIR / filename, format="WEBP", quality=84, method=6)
+            optimized_image = BytesIO()
+            image.save(optimized_image, format="WEBP", quality=84, method=6)
+            if SUPABASE_STORAGE_ENABLED:
+                get_supabase_storage_client().storage.from_(SUPABASE_STORAGE_BUCKET).upload(
+                    path=filename,
+                    file=optimized_image.getvalue(),
+                    file_options={
+                        "content-type": "image/webp",
+                        "cache-control": "3600",
+                        "upsert": "false",
+                    },
+                )
+            else:
+                (UPLOAD_DIR / filename).write_bytes(optimized_image.getvalue())
             return filename
     except (UnidentifiedImageError, Image.DecompressionBombError, OSError):
         raise HTTPException(status_code=415, detail="That image could not be opened. Try another one.")
@@ -74,11 +155,18 @@ def store_uploaded_image(image_bytes: bytes) -> str:
 
 def remove_uploaded_image(image_path):
     if image_path:
+        if SUPABASE_STORAGE_ENABLED:
+            get_supabase_storage_client().storage.from_(SUPABASE_STORAGE_BUCKET).remove([image_path])
+            return
         image_file = UPLOAD_DIR / Path(image_path).name
         image_file.unlink(missing_ok=True)
 
 
 def create_tables():
+    if DATABASE_URL:
+        create_postgres_tables()
+        return
+
     with connect_to_database() as connection:
         connection.execute(
             """
@@ -179,6 +267,86 @@ def create_tables():
             connection.execute("ALTER TABLE reports ADD COLUMN content_image TEXT")
 
 
+def create_postgres_tables():
+    """Create the app schema in a new Supabase PostgreSQL project."""
+    with connect_to_database() as connection:
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS posts (
+                id BIGSERIAL PRIMARY KEY,
+                author TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'feelings',
+                user_id BIGINT,
+                image_path TEXT
+            )"""
+        )
+        connection.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'feelings'")
+        connection.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS user_id BIGINT")
+        connection.execute("ALTER TABLE posts ADD COLUMN IF NOT EXISTS image_path TEXT")
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS users (
+                id BIGSERIAL PRIMARY KEY,
+                username TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                is_moderator BOOLEAN NOT NULL DEFAULT FALSE
+            )"""
+        )
+        connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_moderator BOOLEAN NOT NULL DEFAULT FALSE")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))"
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS reactions (
+                id BIGSERIAL PRIMARY KEY,
+                post_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                reaction TEXT NOT NULL CHECK (reaction IN ('heart', 'laugh', 'hug')),
+                created_at TEXT NOT NULL,
+                UNIQUE (post_id, user_id, reaction)
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS follows (
+                follower_id BIGINT NOT NULL,
+                following_id BIGINT NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (follower_id, following_id),
+                CHECK (follower_id <> following_id)
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS comments (
+                id BIGSERIAL PRIMARY KEY,
+                post_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                author TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )"""
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS reports (
+                id BIGSERIAL PRIMARY KEY,
+                reporter_id BIGINT NOT NULL,
+                content_type TEXT NOT NULL CHECK (content_type IN ('post', 'comment')),
+                content_id BIGINT NOT NULL,
+                content_author TEXT NOT NULL,
+                content_snapshot TEXT NOT NULL,
+                content_image TEXT,
+                reason TEXT NOT NULL,
+                details TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                resolution TEXT,
+                created_at TEXT NOT NULL,
+                resolved_at TEXT,
+                UNIQUE (reporter_id, content_type, content_id)
+            )"""
+        )
+        connection.execute("ALTER TABLE reports ADD COLUMN IF NOT EXISTS content_image TEXT")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
@@ -186,7 +354,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Quiet Space API", lifespan=lifespan)
-app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+if not SUPABASE_STORAGE_ENABLED:
+    app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 app.add_middleware(
     SessionMiddleware,
     secret_key=get_session_secret(),
@@ -245,7 +414,7 @@ def format_post(row):
         "message": row["message"],
         "created_at": row["created_at"],
         "category": row["category"],
-        "image_url": f"/uploads/{row['image_path']}" if row["image_path"] else None,
+        "image_url": get_image_url(row["image_path"]),
         "reaction_counts": {"heart": 0, "laugh": 0, "hug": 0},
         "my_reactions": [],
         "comment_count": 0,
@@ -274,15 +443,16 @@ def sign_up(details: SignUpDetails, request: Request):
     created_at = datetime.now(timezone.utc).isoformat(timespec="minutes")
     # Privileged roles are assigned out of band by the site owner, never by
     # choosing a particular public username during signup.
-    is_moderator = 0
+    is_moderator = False
     try:
         with connect_to_database() as connection:
             cursor = connection.execute(
-                "INSERT INTO users (username, password_hash, created_at, is_moderator) VALUES (?, ?, ?, ?)",
+                "INSERT INTO users (username, password_hash, created_at, is_moderator) "
+                "VALUES (?, ?, ?, ?) RETURNING id",
                 (username, password_hash, created_at, is_moderator),
             )
-            user_id = cursor.lastrowid
-    except sqlite3.IntegrityError:
+            user_id = cursor.fetchone()["id"]
+    except database_integrity_errors():
         raise HTTPException(status_code=409, detail="That username is already taken.")
 
     request.session["user_id"] = user_id
@@ -293,7 +463,7 @@ def sign_up(details: SignUpDetails, request: Request):
 def log_in(details: LoginDetails, request: Request):
     with connect_to_database() as connection:
         user = connection.execute(
-            "SELECT id, username, password_hash, is_moderator FROM users WHERE username = ? COLLATE NOCASE",
+            "SELECT id, username, password_hash, is_moderator FROM users WHERE LOWER(username) = LOWER(?)",
             (details.username.strip(),),
         ).fetchone()
 
@@ -435,12 +605,13 @@ async def create_post(
         with connect_to_database() as connection:
             cursor = connection.execute(
                 "INSERT INTO posts (author, user_id, message, created_at, category, image_path) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
                 (author, user["id"], message, created_at, category, image_path),
             )
+            post_id = cursor.fetchone()["id"]
             row = connection.execute(
                 "SELECT id, author, user_id, message, created_at, category, image_path FROM posts WHERE id = ?",
-                (cursor.lastrowid,),
+                (post_id,),
             ).fetchone()
     except Exception:
         remove_uploaded_image(image_path)
@@ -465,7 +636,8 @@ def follow_user(target_user_id: int, request: Request):
         if target is None:
             raise HTTPException(status_code=404, detail="That account could not be found.")
         connection.execute(
-            "INSERT OR IGNORE INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?)",
+            "INSERT INTO follows (follower_id, following_id, created_at) VALUES (?, ?, ?) "
+            "ON CONFLICT DO NOTHING",
             (user["id"], target_user_id, created_at),
         )
     return {"following": True, "user_id": target_user_id}
@@ -512,9 +684,9 @@ def toggle_reaction(post_id: int, reaction: NewReaction, request: Request):
             )
             reacted = True
         total = connection.execute(
-            "SELECT COUNT(*) FROM reactions WHERE post_id = ? AND reaction = ?",
+            "SELECT COUNT(*) AS total FROM reactions WHERE post_id = ? AND reaction = ?",
             (post_id, reaction.reaction),
-        ).fetchone()[0]
+        ).fetchone()["total"]
     return {"reaction": reaction.reaction, "reacted": reacted, "total": total}
 
 
@@ -563,12 +735,14 @@ def create_comment(post_id: int, comment: NewComment, request: Request):
         if post is None:
             raise HTTPException(status_code=404, detail="That post could not be found.")
         cursor = connection.execute(
-            "INSERT INTO comments (post_id, user_id, author, message, created_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO comments (post_id, user_id, author, message, created_at) "
+            "VALUES (?, ?, ?, ?, ?) RETURNING id",
             (post_id, user["id"], user["username"], message, created_at),
         )
+        comment_id = cursor.fetchone()["id"]
         row = connection.execute(
             "SELECT id, author, message, created_at FROM comments WHERE id = ?",
-            (cursor.lastrowid,),
+            (comment_id,),
         ).fetchone()
     created_comment = dict(row)
     created_comment["can_delete"] = True
@@ -644,9 +818,12 @@ def report_content(report: NewReport, request: Request):
                     report.details.strip(), datetime.now(timezone.utc).isoformat(timespec="minutes"),
                 ),
             )
-        except sqlite3.IntegrityError:
+        except database_integrity_errors():
             raise HTTPException(status_code=409, detail="You have already reported this content.")
-    return {"id": cursor.lastrowid, "ok": True}
+            report_id = None
+        else:
+            report_id = cursor.fetchone()["id"]
+    return {"id": report_id, "ok": True}
 
 
 @app.get("/api/moderation/reports")
@@ -664,7 +841,10 @@ def list_open_reports(request: Request):
                FROM reports JOIN users ON users.id = reports.reporter_id
                WHERE reports.status = 'open' ORDER BY reports.id DESC"""
         ).fetchall()
-    return [dict(row) for row in rows]
+    reports = [dict(row) for row in rows]
+    for report in reports:
+        report["image_url"] = get_image_url(report["content_image"])
+    return reports
 
 
 @app.post("/api/moderation/reports/{report_id}/resolve")

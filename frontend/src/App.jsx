@@ -336,7 +336,7 @@ function ModeratorQueue() {
             <p><strong>{report.content_type} by @{report.content_author}</strong> · reported by @{report.reporter}</p>
             <p className="report-reason">{report.reason.replaceAll('_', ' ')} · {report.created_at.slice(0, 16).replace('T', ' ')}</p>
             <blockquote>{report.content_snapshot}</blockquote>
-            {report.content_image && <img className="report-image" src={`/uploads/${report.content_image}`} alt="Image attached to reported content" />}
+            {report.image_url && <img className="report-image" src={report.image_url} alt="Image attached to reported content" />}
             {report.details && <p className="report-details">Reporter’s note: {report.details}</p>}
             <div className="report-actions"><button type="button" className="text-button" onClick={() => resolveReport(report, 'dismiss')}>Dismiss report</button><button type="button" className="remove-content-button" onClick={() => resolveReport(report, 'remove')}>Remove content</button></div>
           </article>

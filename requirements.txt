@@ -4,3 +4,5 @@ pwdlib[argon2]
 itsdangerous
 python-multipart
 Pillow
+psycopg[binary]
+supabase

@@ -616,7 +616,6 @@ export default function App() {
                   </form>
                   {error && <p className="error-message" role="alert">{error}</p>}
                   <p className="privacy-note">Your username appears with your post.</p>
-                  <p className="privacy-note activity-privacy-note">We save your account’s last-active time for moderators.</p>
                 </section>
               </>
             ) : (

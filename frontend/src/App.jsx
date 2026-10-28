@@ -642,7 +642,6 @@ export default function App() {
                   {authMode === 'signup' ? 'Already have a username?' : 'New around here?'}{' '}
                   <button className="text-button" type="button" onClick={() => { setAuthMode(authMode === 'signup' ? 'login' : 'signup'); setAuthError('') }}>{authMode === 'signup' ? 'Log in' : 'Create one'}</button>
                 </p>
-                <p className="privacy-note activity-privacy-note">For signed-in accounts, we save a last-active time visible only to moderators.</p>
               </section>
             )}
           </section>

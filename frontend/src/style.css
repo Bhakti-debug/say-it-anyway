@@ -123,7 +123,6 @@ body { margin: 0; min-width: 320px; background: radial-gradient(ellipse at 15% 1
 .activity-status { color: var(--muted); font-size: 10px; }
 .activity-status.is-online { color: #55734e; font-weight: 800; }
 .activity-status.is-online::before { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #5b9b69; content: ''; }
-.activity-privacy-note { line-height: 1.6; }
 .report-card { padding: 14px; border: 1px solid #ebe4ed; border-radius: 9px; background: #fff; }
 .report-card>p { margin: 0 0 7px; color: #56505a; font-size: 10px; line-height: 1.6; }
 .report-card .report-reason,.report-card .report-details { color: #847d87; font-size: 9px; }

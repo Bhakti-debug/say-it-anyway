@@ -2,6 +2,8 @@
 
 A small feelings-sharing app. People can browse the feed, create an account with a username, post thoughts with an optional photo into a section, follow other accounts, leave emoji reactions, and comment. The signup form does not ask for a real name or email address. FastAPI provides the API. Local development uses SQLite and local image files; the hosted version uses Supabase PostgreSQL and Supabase Storage.
 
+When a signed-in account keeps the site visible, the app saves a `last_seen_at` timestamp about once a minute. Moderators can see usernames and their last-active times in the **Account activity** panel. An account is marked online for two minutes after its last check-in. This does not identify or count visitors who are browsing without signing in.
+
 ## Run it locally (Windows)
 
 Install Python 3.13, Node.js 22 or newer, and npm if they are not already installed. Then double-click `start.bat`. The first run downloads the app packages and can take a little while. When the terminal says the server is running, open http://127.0.0.1:8000. Keep the terminal window open while using the app; press Ctrl+C there to stop it.

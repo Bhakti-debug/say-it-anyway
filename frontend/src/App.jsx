@@ -276,9 +276,13 @@ function PostCard({ post, index, currentUser, onPostUpdate, onPostDelete, onFoll
 
 function ModeratorQueue() {
   const [reports, setReports] = useState([])
+  const [activity, setActivity] = useState([])
   const [open, setOpen] = useState(false)
+  const [activityOpen, setActivityOpen] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [activityLoading, setActivityLoading] = useState(false)
   const [error, setError] = useState('')
+  const [activityError, setActivityError] = useState('')
 
   async function loadReports() {
     setLoading(true)
@@ -299,6 +303,27 @@ function ModeratorQueue() {
     const willOpen = !open
     setOpen(willOpen)
     if (willOpen) await loadReports()
+  }
+
+  async function loadActivity() {
+    setActivityLoading(true)
+    setActivityError('')
+    try {
+      const response = await fetch('/api/moderation/activity', { credentials: 'include' })
+      const result = await response.json()
+      if (!response.ok) throw new Error(result.detail || 'Could not load account activity.')
+      setActivity(result)
+    } catch (loadError) {
+      setActivityError(loadError.message)
+    } finally {
+      setActivityLoading(false)
+    }
+  }
+
+  async function toggleActivity() {
+    const willOpen = !activityOpen
+    setActivityOpen(willOpen)
+    if (willOpen) await loadActivity()
   }
 
   async function resolveReport(report, action) {
@@ -325,9 +350,14 @@ function ModeratorQueue() {
 
   return (
     <section className="moderator-queue">
-      <button className="moderator-toggle" type="button" onClick={toggleQueue} aria-expanded={open}>
-        {open ? 'Close report queue' : `Review reports${reports.length ? ` · ${reports.length}` : ''}`}
-      </button>
+      <div className="moderator-tools">
+        <button className="moderator-toggle" type="button" onClick={toggleQueue} aria-expanded={open}>
+          {open ? 'Close report queue' : `Review reports${reports.length ? ` · ${reports.length}` : ''}`}
+        </button>
+        <button className="moderator-toggle" type="button" onClick={toggleActivity} aria-expanded={activityOpen}>
+          {activityOpen ? 'Close account activity' : 'Account activity'}
+        </button>
+      </div>
       {open && <div className="moderator-panel">
         <div className="moderator-heading"><h2>Reports to review</h2><button className="text-button" type="button" onClick={loadReports} disabled={loading}>Refresh</button></div>
         {error && <p className="error-message" role="alert">{error}</p>}
@@ -341,6 +371,16 @@ function ModeratorQueue() {
             <div className="report-actions"><button type="button" className="text-button" onClick={() => resolveReport(report, 'dismiss')}>Dismiss report</button><button type="button" className="remove-content-button" onClick={() => resolveReport(report, 'remove')}>Remove content</button></div>
           </article>
         )) : !error && <p className="feed-message">No reports waiting. Nice and quiet.</p>}
+      </div>}
+      {activityOpen && <div className="moderator-panel activity-panel">
+        <div className="moderator-heading"><div><h2>Account activity</h2><p className="activity-caption">Only moderators can see this. Signed-in accounts check in about once a minute while the site is open.</p></div><button className="text-button" type="button" onClick={loadActivity} disabled={activityLoading}>Refresh</button></div>
+        {activityError && <p className="error-message" role="alert">{activityError}</p>}
+        {activityLoading ? <p className="feed-message">Loading activity…</p> : activity.length ? <div className="activity-list">
+          {activity.map((user) => <div className="activity-row" key={user.id}>
+            <strong>@{user.username}</strong>
+            <span className={user.is_online ? 'activity-status is-online' : 'activity-status'}>{user.is_online ? 'Online' : user.last_seen_at ? `Last active ${new Date(user.last_seen_at).toLocaleString()}` : 'Not active yet'}</span>
+          </div>)}
+        </div> : !activityError && <p className="feed-message">No accounts yet.</p>}
       </div>}
     </section>
   )
@@ -421,6 +461,22 @@ export default function App() {
       .catch(() => setCurrentUser(null))
       .finally(() => setCheckingSession(false))
   }, [])
+
+  useEffect(() => {
+    if (!currentUser) return undefined
+
+    const checkIn = () => {
+      if (document.visibilityState !== 'visible') return
+      fetch('/api/presence', { method: 'POST', credentials: 'include' }).catch(() => {})
+    }
+    checkIn()
+    const interval = window.setInterval(checkIn, 60_000)
+    document.addEventListener('visibilitychange', checkIn)
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', checkIn)
+    }
+  }, [currentUser])
 
   async function handleAuthSubmit(event) {
     event.preventDefault()
@@ -560,6 +616,7 @@ export default function App() {
                   </form>
                   {error && <p className="error-message" role="alert">{error}</p>}
                   <p className="privacy-note">Your username appears with your post.</p>
+                  <p className="privacy-note activity-privacy-note">We save your account’s last-active time for moderators.</p>
                 </section>
               </>
             ) : (
@@ -586,6 +643,7 @@ export default function App() {
                   {authMode === 'signup' ? 'Already have a username?' : 'New around here?'}{' '}
                   <button className="text-button" type="button" onClick={() => { setAuthMode(authMode === 'signup' ? 'login' : 'signup'); setAuthError('') }}>{authMode === 'signup' ? 'Log in' : 'Create one'}</button>
                 </p>
+                <p className="privacy-note activity-privacy-note">For signed-in accounts, we save a last-active time visible only to moderators.</p>
               </section>
             )}
           </section>

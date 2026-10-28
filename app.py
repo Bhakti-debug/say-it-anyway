@@ -194,7 +194,8 @@ def create_tables():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL COLLATE NOCASE UNIQUE,
                 password_hash TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                last_seen_at TEXT
             )
             """
         )
@@ -240,6 +241,8 @@ def create_tables():
             connection.execute(
                 "ALTER TABLE users ADD COLUMN is_moderator INTEGER NOT NULL DEFAULT 0"
             )
+        if "last_seen_at" not in user_columns:
+            connection.execute("ALTER TABLE users ADD COLUMN last_seen_at TEXT")
         connection.execute(
             """
             CREATE TABLE IF NOT EXISTS reports (
@@ -290,10 +293,12 @@ def create_postgres_tables():
                 username TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                is_moderator BOOLEAN NOT NULL DEFAULT FALSE
+                is_moderator BOOLEAN NOT NULL DEFAULT FALSE,
+                last_seen_at TEXT
             )"""
         )
         connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_moderator BOOLEAN NOT NULL DEFAULT FALSE")
+        connection.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_seen_at TEXT")
         connection.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS users_username_lower_unique ON users (LOWER(username))"
         )
@@ -497,6 +502,56 @@ def current_session(request: Request):
 def log_out(request: Request):
     request.session.clear()
     return {"ok": True}
+
+
+@app.post("/api/presence")
+def update_presence(request: Request):
+    user_id = request.session.get("user_id")
+    user = find_user_by_id(user_id) if user_id is not None else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="Log in to update account activity.")
+
+    last_seen_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with connect_to_database() as connection:
+        connection.execute(
+            "UPDATE users SET last_seen_at = ? WHERE id = ?",
+            (last_seen_at, user["id"]),
+        )
+    return {"ok": True}
+
+
+@app.get("/api/moderation/activity")
+def list_account_activity(request: Request):
+    user_id = request.session.get("user_id")
+    viewer = find_user_by_id(user_id) if user_id is not None else None
+    if viewer is None or not viewer["is_moderator"]:
+        raise HTTPException(status_code=403, detail="Moderator access is required.")
+
+    with connect_to_database() as connection:
+        rows = connection.execute(
+            "SELECT id, username, created_at, last_seen_at FROM users "
+            "ORDER BY CASE WHEN last_seen_at IS NULL THEN 1 ELSE 0 END, last_seen_at DESC "
+            "LIMIT 100"
+        ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    activity = []
+    for row in rows:
+        last_seen_at = row["last_seen_at"]
+        is_online = False
+        if last_seen_at:
+            last_seen = datetime.fromisoformat(last_seen_at)
+            if last_seen.tzinfo is None:
+                last_seen = last_seen.replace(tzinfo=timezone.utc)
+            is_online = (now - last_seen).total_seconds() <= 120
+        activity.append({
+            "id": row["id"],
+            "username": row["username"],
+            "created_at": row["created_at"],
+            "last_seen_at": last_seen_at,
+            "is_online": is_online,
+        })
+    return activity
 
 
 @app.get("/api/posts")

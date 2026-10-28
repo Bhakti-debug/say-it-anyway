@@ -113,9 +113,17 @@ body { margin: 0; min-width: 320px; background: radial-gradient(ellipse at 15% 1
 .report-submit,.remove-content-button { justify-self: start; padding: 8px 12px; border: 0; border-radius: 7px; background: #9d526b; color: #fff; font: 700 9px 'Nunito Sans', sans-serif; cursor: pointer; }
 .report-submit:disabled { opacity: .6; cursor: wait; }
 .moderator-queue { max-width: 960px; margin: 0 auto 34px; }
+.moderator-tools { display: flex; flex-wrap: wrap; gap: 8px; }
 .moderator-toggle { padding: 8px 12px; border: 1px solid #e2d4e5; border-radius: 999px; background: #fff7f4; color: #70495f; font: 700 10px 'Nunito Sans', sans-serif; cursor: pointer; }
 .moderator-panel { display: grid; gap: 12px; margin-top: 12px; padding: 18px; border: 1px solid #e4d8e6; border-radius: 12px; background: #fffaf7; }
 .moderator-heading h2 { margin: 0; color: #45374a; font: 500 18px 'Lora', Georgia, serif; }
+.activity-caption { margin: 6px 0 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+.activity-list { display: grid; gap: 7px; }
+.activity-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px 12px; border: 1px solid #eee6ed; border-radius: 8px; background: #fff; color: #514a53; font-size: 11px; }
+.activity-status { color: var(--muted); font-size: 10px; }
+.activity-status.is-online { color: #55734e; font-weight: 800; }
+.activity-status.is-online::before { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: #5b9b69; content: ''; }
+.activity-privacy-note { line-height: 1.6; }
 .report-card { padding: 14px; border: 1px solid #ebe4ed; border-radius: 9px; background: #fff; }
 .report-card>p { margin: 0 0 7px; color: #56505a; font-size: 10px; line-height: 1.6; }
 .report-card .report-reason,.report-card .report-details { color: #847d87; font-size: 9px; }
